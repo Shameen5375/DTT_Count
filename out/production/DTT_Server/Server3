@@ -1,0 +1,51 @@
+if (serverNumber == 3) {
+                System.out.println("Server 3: Comparing the Remainders");
+
+                ServerSocket ss = new ServerSocket(serverPort);
+                Socket clientSocket = ss.accept();
+                System.out.println("Connected to Client");
+
+                ObjectOutputStream objectOutputStream = new ObjectOutputStream(clientSocket.getOutputStream());
+
+                // ExecutorService executor = Executors.newFixedThreadPool(2);
+
+
+                Future<byte[]> server1Future = executor.submit(() -> {
+                    Socket socketServer1 = ss.accept();
+                    System.out.println("Connected to Server 1");
+                    ObjectInputStream inputStream1 = new ObjectInputStream(socketServer1.getInputStream());
+                    return (byte[]) inputStream1.readObject();
+                });
+
+                Future<byte[]> server2Future = executor.submit(() -> {
+                    Socket socketServer2 = ss.accept();
+                    System.out.println("Connected to Server 2");
+                    ObjectInputStream inputStream2 = new ObjectInputStream(socketServer2.getInputStream());
+                    return (byte[]) inputStream2.readObject();
+                });
+
+                // Retrieve the results from both servers
+                for (int i = 0; i < 10; i++) {
+                    byte[] rem_Server1 = server1Future.get();  // Get result from Server 1
+                    byte[] rem_Server2 = server2Future.get();  // Get result from Server 2
+
+                    // Compare the remainders
+                    byte[] comp = new byte[numRows];
+                    ArrayList<Instant> processingTime = new ArrayList<>();
+                    processingTime.add(Instant.now());
+
+                    for (int j = 0; j < numRows; j++) {
+                        if (Math.abs(rem_Server1[j]) > Math.abs(rem_Server2[j])) {
+                            comp[j] = 1;  // Server 1 remainder is greater
+                        } else {
+                            comp[j] = 0;  // Server 2 remainder is greater or equal
+                        }
+                    }
+                   byte totalComp = 0;
+                    for (byte value : comp) {
+                        totalComp += value;
+                    }
+                    byte[] totalCompBytes = new byte[]{totalComp};
+
+                    // Send the comparison result back to the client
+                    objectOutputStream.writeObject(totalCompBytes);
