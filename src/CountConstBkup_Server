@@ -1,103 +1,125 @@
 
+
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Properties;
 import java.util.concurrent.*;
 import java.util.logging.Logger;
 
 import ut.Helper;
 
+
 public class Server {
 
     public static int div = 32;
-   static Properties config = Helper.readPropertiesFile("config/config.ini");
+    static Properties config = Helper.readPropertiesFile("config/config.ini");
     static int numRows = Integer.parseInt(config.getProperty("num_rows"));
-    static int p = numRows;
-    public static int q = p*div;
+    static int p = (int) (numRows);
+    public static long q = (long) p * div;
     private static final Logger log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
 
 
-    /**
-     * To process the client query using pre-computation approach
-     *
-     * @param executor          the thread executors
-     * @param futures           the thread handler
-     * @param rowsPerThread     the number of rows handled by each thread
-     * @param remainder         helper variable
-     * @param numThreads        the number of threads
-     * @param numBits           the number of bits
-     * @param serverData        the data stored at the server
-     * @param query             the client query
-     * @param results           the result formed after server computation
-     * @param precomputedPrefix the precomputed prefix values from client share
-     * @return the valued computed for each row of server data
-     * @throws Exception
-     */
 
-    public static int[][] processQueryWithPrecompute(ExecutorService executor, Future<?>[] futures,
-                                                     int rowsPerThread, int remainder, int numThreads,
-                                                     int numBits, long[] serverData, int[][] query,
-                                                     int[] results, int[] remvalues, int[] totalsum, short[] precomputedPrefix) throws Exception {
+    public static long[][] processQueryWithPrecompute(
+            ExecutorService executor, Future<?>[] futures,
+            int rowsPerThread, int remainder, int numThreads,
+            int numBits, long[] serverData, int[][] query,
+            long[] results, long[] remvalues, long[] totalsum, int[] precomputedPrefix) throws Exception {
 
-        // running threads
         for (int t = 0; t < numThreads; t++) {
             final int start = t * rowsPerThread + Math.min(t, remainder);
             final int end = start + rowsPerThread + (t < remainder ? 1 : 0);
 
             int finalT = t;
             futures[t] = executor.submit(() -> {
-                short result;
-                long data, data_org;
-                int partialSum = 0;
-                int s;
+                long partialSum =0;
 
-                int temp = numBits - 1;
-                int j, leadingZeros, temp1 = 64 - numBits;
-                byte bitValue;
                 for (int i = start; i < end; i++) {
-                    data = serverData[i];
-                    data_org = data;
-                    leadingZeros = Long.numberOfLeadingZeros(data) - temp1;
-                    result = (precomputedPrefix[leadingZeros]);
-                    int quotient = 0;
-                    short remn = 0;
-                    for (j = temp; j >= leadingZeros; j--) {
-                        bitValue = (byte) (data & 1);
+                    long data = serverData[i];
+                    long data_org = data;
+
+                    int leadingZeros = Long.numberOfLeadingZeros(data) - (64 - numBits);
+                    long result= (precomputedPrefix[leadingZeros]);
+
+                    for (int j = numBits - 1; j >= leadingZeros; j--) {
+                        byte bitValue = (byte) (data & 1);
                         result += (query[j][bitValue]);
                         data >>= 1;
                     }
+                   // long s= ((result%q)+q)%q;
+                    //long  quotient = (s+q)/div;
+                    long s= result;
+                    long  quotient = (s)/div;
+                    long remn = s%div;
 
-                    quotient = (int) (result/div);
-                    remn = (short) (result % div);
-                  // Start Here:
-                   /* System.out.println(result);
-                    System.out.println("q:" + quotient);
-                    System.out.println("r:" + remn);*/
-
-                    results[i] = (int) Math.abs(quotient);
+                    results[i] = quotient;
                     remvalues[i] = remn;
-                    partialSum += (int) results[i];
+
+                    partialSum += quotient;
                     serverData[i] = data_org;
-
                 }
-
                 totalsum[finalT] = partialSum;
-
-                System.out.println("total:" + totalsum[finalT]);
-
             });
-
         }
+
         for (Future<?> future : futures) {
             future.get();
         }
 
-        return (int[][]) new int[][]{totalsum, remvalues};
+        return (long[][]) new long[][]{totalsum, remvalues};
     }
 
+    public static long[][] processQueryWithPrecompute2(
+            ExecutorService executor, Future<?>[] futures,
+            int rowsPerThread, int remainder, int numThreads,
+            int numBits, long[] serverData, int[][] query,
+            long[] results, long[] remvalues, long[] totalsum, int[] precomputedPrefix) throws Exception {
+
+        for (int t = 0; t < numThreads; t++) {
+            final int start = t * rowsPerThread + Math.min(t, remainder);
+            final int end = start + rowsPerThread + (t < remainder ? 1 : 0);
+
+            int finalT = t;
+            futures[t] = executor.submit(() -> {
+                long partialSum =0;
+
+                for (int i = start; i < end; i++) {
+                    long data = serverData[i];
+                    long data_org = data;
+
+                    int leadingZeros = Long.numberOfLeadingZeros(data) - (64 - numBits);
+                    long result= (precomputedPrefix[leadingZeros]);
+
+                    for (int j = numBits - 1; j >= leadingZeros; j--) {
+                        byte bitValue = (byte) (data & 1);
+                        result += (query[j][bitValue]);
+                        data >>= 1;
+                    }
+                   // long s= ((result%q)+q)%q;
+                    long s= result;
+                    long  quotient = (s)/div;
+                    long remn = s%div;
+
+                    results[i] = quotient;
+                    remvalues[i] = remn;
+
+                    partialSum += quotient;
+                    serverData[i] = data_org;
+                }
+                totalsum[finalT] = partialSum;
+            });
+        }
+
+        for (Future<?> future : futures) {
+            future.get();
+        }
+
+        return (long[][]) new long[][]{totalsum, remvalues};
+    }
 
     public static void main(String[] args) throws Exception {
         // reading server number
@@ -121,18 +143,20 @@ public class Server {
         int iter = Integer.parseInt(config.getProperty("iteration"));
 
         // reading server data:
-        long[] serverData = Helper.loadDataValues(dataPath, numBits, numRows);
+        long[][] data = Helper.loadDataValues(config.getProperty("csv_file_path"), numRows, 2);
+        long[] serverData = Arrays.stream(data).mapToLong(row -> row[0]).toArray();
+        long[] valueData = Arrays.stream(data).mapToLong(row -> row[1]).toArray();
         ArrayList<Double> totalServerTimeList = new ArrayList<>();
         try {
             System.out.println("Server" + serverNumber + " Listening........");
 
             int[][] query;
             ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-            int[] results = new int[numRows];
-            int[] totalsum = new int[numThreads];
-            int[] remValues = new int[numRows];
+            long[] results = new long[numRows];
+            long[] remValues = new long[numRows];
+            long[]  totalsum= new long[numRows];
 
-            if (serverNumber == 1 || serverNumber == 2) {
+            if (serverNumber == 1) {
                 System.out.println("Loaded " + serverData.length + " rows of data");
 
                 // for server 3
@@ -163,23 +187,26 @@ public class Server {
                     int rowsPerThread = numRows / numThreads;
                     int remainder = numRows % numThreads;
                     Future<?>[] futures = new Future<?>[numThreads];
-                    short[] precomputedPrefix = new short[numBits + 1];
+                    int[] precomputedPrefix = new int[numBits + 1];
 
                     query = (int[][]) inputStream.readObject();
-                    System.out.println("Received from client for iteration i:" + i);
+                   // System.out.println("Received from client for iteration i:" + i);
 
                     processingTime.add(Instant.now());
-                    precomputedPrefix[1] = (short) query[0][0];
+                    precomputedPrefix[1] = (int) query[0][0];
                     for (int m = 1; m < numBits; m++) {
-                        precomputedPrefix[m + 1] = (short) (precomputedPrefix[m] + (query[m][0]));
+                        precomputedPrefix[m + 1] = (int) (precomputedPrefix[m] + (query[m][0]));
                     }
-                    int[][] processedData = processQueryWithPrecompute(executor, futures, rowsPerThread, remainder, numThreads, numBits,
-                            serverData, query, results, remValues,totalsum, precomputedPrefix);
+                    // Call processQueryWithPrecompute and get the results
 
-                    processingTime.add(Instant.now());
+                    long[] [] processedData = processQueryWithPrecompute(
+                            executor, futures, rowsPerThread, remainder, numThreads, numBits,
+                            serverData, query, results, remValues, totalsum, precomputedPrefix);
+
                     totalsum = processedData[0];
                     remValues = processedData[1];
 
+                    processingTime.add(Instant.now());
                     System.out.println("Processing time:" + Helper.getTotalTime(processingTime));
                     totalServerTimeList.add(Helper.getTotalTime(processingTime));
                     objectOutputStreamclient.writeObject(totalsum);
@@ -196,6 +223,75 @@ public class Server {
                 }
                 executor.shutdown();
             }
+
+            if (serverNumber == 2) {
+                System.out.println("Loaded " + serverData.length + " rows of data");
+
+                // for server 3
+                String server3IP = config.getProperty("server3_ip");
+                int server3Port = Integer.parseInt(config.getProperty("server3_port"));
+                System.out.println(server3Port);
+                Socket socketServer3 = new Socket(server3IP, server3Port);
+
+                ObjectOutputStream outputStreamServer3 = new ObjectOutputStream(socketServer3.getOutputStream());
+                System.out.println(server3Port);
+                ObjectInputStream inputStreamServer3 = new ObjectInputStream(socketServer3.getInputStream());
+                System.out.println(server3Port);
+                System.out.println("Server3");
+                System.out.println("Local port:"+socketServer3.getLocalPort());
+                System.out.println("Remote port:"+socketServer3.getPort());
+
+                ServerSocket ss = new ServerSocket(serverPort);
+                Socket socketServer = ss.accept();
+                System.out.println("Connected!");
+                ObjectInputStream inputStream = new ObjectInputStream(socketServer.getInputStream());
+                ObjectOutputStream objectOutputStreamclient = new ObjectOutputStream(socketServer.getOutputStream());
+                System.out.println("Client");
+
+                for (int i = 0; i < iter; i++) {
+                    // initialization
+                    ArrayList<Instant> processingTime = new ArrayList<>();
+
+                    int rowsPerThread = numRows / numThreads;
+                    int remainder = numRows % numThreads;
+                    Future<?>[] futures = new Future<?>[numThreads];
+                    int[] precomputedPrefix = new int[numBits + 1];
+
+                    query = (int[][]) inputStream.readObject();
+                    System.out.println("Received from client for iteration i:" + i);
+
+                    processingTime.add(Instant.now());
+                    precomputedPrefix[1] = (int) query[0][0];
+                    for (int m = 1; m < numBits; m++) {
+                        precomputedPrefix[m + 1] = (int) (precomputedPrefix[m] + (query[m][0]));
+                    }
+                    long[] [] processedData = processQueryWithPrecompute2(
+                            executor, futures, rowsPerThread, remainder, numThreads, numBits,
+                            serverData, query, results, remValues, totalsum, precomputedPrefix);
+
+                    totalsum = processedData[0];
+                    remValues = processedData[1];
+
+                    processingTime.add(Instant.now());
+                    System.out.println("Processing time:" + Helper.getTotalTime(processingTime));
+                    totalServerTimeList.add(Helper.getTotalTime(processingTime));
+                    objectOutputStreamclient.writeObject(totalsum);
+
+
+                    try {
+                        outputStreamServer3.writeObject(remValues);
+
+                        System.out.println("Sent remainder values to Server 3");
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
+                }
+                executor.shutdown();
+            }
+
+
+
 
             if (serverNumber == 3) {
                 System.out.println("Server 3: Comparing the Remainders");
@@ -227,8 +323,8 @@ public class Server {
 
 
                 for (int m = 0; m < iter; m++) {
-                    int[] rem_Server1 = (int[]) inputStreamServer1.readObject();
-                    int[] rem_Server2 = (int[]) inputStreamServer2.readObject();
+                    long[] rem_Server1 = (long[]) inputStreamServer1.readObject();
+                    long[] rem_Server2 = (long[]) inputStreamServer2.readObject();
 
                     // Compare the remainders
                     int[] comp = new int[numRows];
@@ -238,9 +334,6 @@ public class Server {
                     System.out.println(rem_Server2.length);
                     processingTime.add(Instant.now());
                     for (int j = 0; j < numRows; j++) {
-                        //System.out.println("rems1:"+ rem_Server1[j]);
-                        //System.out.println("rems2:"+ rem_Server2[j]);
-
                         if (Math.abs(rem_Server1[j]) < Math.abs(rem_Server2[j])) {
                             comp[j] = 1;
                         }
@@ -257,7 +350,7 @@ public class Server {
                     System.out.println("COMP:" + totalComp);
 
 
-                    int[] totalCompBytes = new int[]{totalComp};
+                    long[] totalCompBytes = new long[]{totalComp};
 
                     processingTime.add(Instant.now());
                     System.out.println("Processing time: " + Helper.getTotalTime(processingTime));
