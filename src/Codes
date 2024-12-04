@@ -23,7 +23,7 @@
                     int n = 100;
                     if (currentBit == 1) {
                         T0[i][b] = (byte) ((random.nextInt(n) + 1));
-                        T1[i][b] = (byte) ((T0[i][b] + 1));
+                        T1[i][b] = (byte) ((T0[i][b] - 1));
                     } else {
                         int[] z = {0, n};
                         int l = 1;
@@ -66,15 +66,15 @@
 
             //MOD DTT:
 
-/*  int i;
-            for (i = temp; i >= 0; i--) {
+/* 
+            for (int i = temp; i >= 0; i--) {
                 bitValue = (byte) (query & 1);
                 T[i][1] = bitValue;
                 T[i][0] = (byte) (bitValue ^ 1);
                 for (int b = 0; b < 2; b++) {
                     T0[i][b] = (byte) (random1.nextInt(100)); // random value between 0 and 126
                     T1[i][b] = (byte) ((T0[i][b] - T[i][b] + q1) % q1);
-                     if (T1[i][b] < 0) T1[i][b] += q;
+               
                 }
                 query >>= 1;
             }*/
