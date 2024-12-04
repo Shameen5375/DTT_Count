@@ -10,39 +10,35 @@ import java.util.logging.Logger;
 import ut.Helper;
 
 
-
 public class Client {
 
     public static int div = 32;
     static Properties config = Helper.readPropertiesFile("config/config.ini");
     static int numRows = Integer.parseInt(config.getProperty("num_rows"));
-    static int p = numRows;
-    public static int q = p*div;
-
-
+    static int p = (int) (numRows);
+    public static long q = (long) p * div;
 
     private static final Logger log = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
 
-    public static int interpolate(int[] result1, int[] result2, int[] result3, int numBits, int bits) {
-        Properties config = Helper.readPropertiesFile("config/config.ini");
-        int numRows = Integer.parseInt(config.getProperty("num_rows"));
-        int p = numRows;
-        int value1 = (result1 != null && result1.length > 0) ? result1[0] : 0;
-        int value2 = (result2 != null && result2.length > 0) ? result2[0] : 0;
-        int value3 = (result3 != null && result3.length > 0) ? result3[0] : 0;
 
+    public static long interpolate(long[] result1, long[] result2, int p, int numBits) {
+        long value1 = (result1 != null && result1.length > 0) ? result1[0] : 0;
+        long value2 = (result2 != null && result2.length > 0) ? result2[0] : 0;
+        long difference = Math.abs(value1 - value2);
+      // long result = ((difference%p)+p) % p;
+       long result= difference;
 
-        int result = Math.abs(value1 - value2) - value3;
-        return (int) (result);
+        return result;
     }
 
-    public static int[] sendToServer(Object data, ObjectOutputStream outputStream, ObjectInputStream  inputStream) {
-        int[] results = null;
+
+    public static long[] sendToServer(Object data, ObjectOutputStream outputStream, ObjectInputStream inputStream) {
+        long[] results = null;
         try {
             // sending data to server
             outputStream.writeObject(data);
             // receiving data from server
-            results = (int[]) inputStream.readObject();
+            results = (long[]) inputStream.readObject();
         } catch (IOException ex) {
             log.log(Level.SEVERE, ex.getMessage());
         } catch (ClassNotFoundException e) {
@@ -50,7 +46,6 @@ public class Client {
         }
         return results;
     }
-
 
 
     public static int[] readFromServer(ObjectInputStream inputStream) {
@@ -67,11 +62,11 @@ public class Client {
     }
 
 
-    public static int[] readFromServer3(ObjectInputStream inputStream) {
-        int[] results = null;
+    public static long[] readFromServer3(ObjectInputStream inputStream) {
+        long[] results = null;
         try {
             // receiving data from server
-            results = (int[]) inputStream.readObject();
+            results = (long[]) inputStream.readObject();
             System.out.println(results.length);
         } catch (IOException ex) {
             log.log(Level.SEVERE, ex.getMessage());
@@ -82,28 +77,27 @@ public class Client {
     }
 
 
-
-
     /**
      * Return number of rows matching the input query
+     *
      * @throws IOException
      */
 
     public static void processQuery() throws IOException, ExecutionException, InterruptedException {
-
         // reading properties file for parameters
         Properties config = Helper.readPropertiesFile("config/config.ini");
         int numBits = Integer.parseInt(config.getProperty("num_bits"));
         int numRows = Integer.parseInt(config.getProperty("num_rows"));
+        String csvFilePath = config.getProperty("csv_file_path");
+
         String server1IP = config.getProperty("server1_ip");
         int server1Port = Integer.parseInt(config.getProperty("server1_port"));
         String server2IP = config.getProperty("server2_ip");
         int server2Port = Integer.parseInt(config.getProperty("server2_port"));
-        String server3IP = config.getProperty("server3_ip");
-        int server3Port = Integer.parseInt(config.getProperty("server3_port"));
         int iter = Integer.parseInt(config.getProperty("iteration"));
 
-        // create sockets for server
+
+        // create sockets for servers
         Socket socketServer1 = new Socket(server1IP, server1Port);
         ObjectOutputStream outputStreamServer1 = new ObjectOutputStream(socketServer1.getOutputStream());
         ObjectInputStream inputStreamServer1 = new ObjectInputStream(socketServer1.getInputStream());
@@ -112,22 +106,32 @@ public class Client {
         ObjectOutputStream outputStreamServer2 = new ObjectOutputStream(socketServer2.getOutputStream());
         ObjectInputStream inputStreamServer2 = new ObjectInputStream(socketServer2.getInputStream());
 
-        Socket socketServer3 = new Socket(server3IP, server3Port);
-        ObjectOutputStream outputStreamServer3 = new ObjectOutputStream(socketServer3.getOutputStream());
-        ObjectInputStream inputStreamServer3 = new ObjectInputStream(socketServer3.getInputStream());
-        System.out.println("Server3");
-        System.out.println("Local port:" + socketServer3.getLocalPort());
-        System.out.println("Remote port:" + socketServer3.getPort());
-
         // Ask for query input
         Scanner scanner = new Scanner(System.in);
+        long[][] csvData = Helper.loadDataValues(csvFilePath, numRows, 2); // Assuming 2 columns
+
         ArrayList<Double> totalProcessingTimeList = new ArrayList<>();
         ArrayList<Double> totalNetworkTimeList = new ArrayList<>();
         for (int m = 0; m < iter; m++) {
             System.out.print("Enter your message: ");
             long query = Long.parseLong(scanner.nextLine());
-            int query_org;
-            query = query_org = 5;
+            int query_org = (int) query;
+
+            long correspondingValue = 0;
+
+            // Find the corresponding value
+            for (long[] row : csvData) {
+                if (row[0] == query) {
+                    correspondingValue = row[1]; // Get the second column's value
+                    break;
+                }
+            }
+
+            if (correspondingValue == 0) {
+                System.out.println("Query not found in CSV");
+                continue;
+            }
+            System.out.println("Query: " + query + ", Corresponding Value: " + correspondingValue);
 
 
             ArrayList<Instant> processingTime = new ArrayList<>();
@@ -135,137 +139,89 @@ public class Client {
             ExecutorService executor = Executors.newFixedThreadPool(2);
 
             @SuppressWarnings("unchecked")
-            Future<int[]> futureServer1;
-            Future<int[]> futureServer2;
-            Future<int[]> futureServer3;
+            Future<long[]> futureServer1;
+            Future<long[]> futureServer2;
 
-
-            // server tables T0/T1
+            // Prepare tables T0/T1
             int[][] T0 = new int[numBits][2];
             int[][] T1 = new int[numBits][2];
             byte[][] T = new byte[numBits][2];
-
-            // Prepare tables T0/T1 with random integers between 0 and 127
-            processingTime.add(Instant.now());
             Random random = new Random();
             int temp = numBits - 1;
             byte bitValue;
-            // int q = 136;
-
-
-           /* System.out.println("Starting Mod DTT");
-            Random random1 = new Random(); // Use any integer as a seed value
-            for (int i = temp; i >= 0; i--) {
-                bitValue = (byte) (query & 1);
-                T[i][1] = bitValue;
-                T[i][0] = (byte) (bitValue ^ 1);
-                processingTime.add(Instant.now());
-                for (int b = 0; b < 2; b++) {
-                    T0[i][b] = (int) (random1.nextInt(q));
-                    T1[i][b] = (int) ((T0[i][b] - T[i][b] + q) % q);
-                    query >>= 1;
-                }
-                // Prepare tables T0/T1 with random integers between 0 and 127
-*/
-            int n = 100;
-            int[] z = {0, n};
-            int l = 1;
-            int totalValues = (n - l + 2);
-            int randomIndex = random.nextInt(totalValues);
-            //Constraint DTT
-            System.out.println("Starting Constraint DTT");
-            int q1 = 100;
-            //Constraint DTT
             int i;
-            for (i = temp; i >= 0; i--) {
+            int q1=127;
+            processingTime.add(Instant.now());
+
+            for ( i = temp; i >= 0; i--) {
                 bitValue = (byte) (query & 1);
                 T[i][1] = bitValue;
                 T[i][0] = (byte) (1 - bitValue);
 
-                processingTime.add(Instant.now());
                 for (int b = 0; b < 2; b++) {
                     byte currentBit = T[i][b];
+                    int n = 100;
                     if (currentBit == 1) {
                         T0[i][b] = (byte) ((random.nextInt(n) + 1));
-                        T1[i][b] = (byte) ((T0[i][b] + 1));
+                        T1[i][b] = (byte) ((T0[i][b] - 1));
                     } else {
+                        int[] z = {0, n};
+                        int l = 1;
+                        int totalValues = (n - l + 1 + 1);
+                        int randomIndex = random.nextInt(totalValues);
+
                         if (randomIndex != 0) {
                             T0[i][b] = (byte) ((l + random.nextInt(n)));
                         } else {
                             T0[i][b] = (byte) (z[random.nextInt(z.length)]);
                         }
+
                         T1[i][b] = T0[i][b];
                     }
                 }
                 query >>= 1;
 
-                processingTime.add(Instant.now());
-
-             /*
-             //Random random = new Random();
-            for (int i = 0; i < numBits; i++) {
-                T0[i][0] = (byte) (random.nextInt(100) + 1);
-                T0[i][1] = (byte) (random.nextInt(100) + 1);
-                T1[i][0] = T0[i][0];
-                T1[i][1] = T0[i][1];
+                //System.out.printf("T0[%d][0] = %d, T0[%d][1] = %d%n", i, T0[i][0], i, T0[i][1]);
+                //System.out.printf("T1[%d][0] = %d, T1[%d][1] = %d%n", i, T1[i][0], i, T1[i][1]);
             }
 
-            // Store query as additive shares in T0/T1
+
+           /* for (i = temp; i >= 0; i--) {
+                bitValue = (byte) (query & 1);
+                T[i][1] = bitValue;
+                T[i][0] = (byte) (bitValue ^ 1);
+                for (int b = 0; b < 2; b++) {
+                    T0[i][b] = (byte) (random.nextInt(100)); // random value between 0 and 126
+                    T1[i][b] = (byte) ((T0[i][b] - T[i][b] + q1) % q1);
+                    //if (T1[i][b] < 0) T1[i][b] += q;
+                }
+                query >>= 1;
+            }*/
+
             processingTime.add(Instant.now());
 
-            for (int i = temp; i >= 0; i--) {
-                bitValue = (byte) (query & 1);
-                T0[i][bitValue] -= 1;
-                query >>= 1;
-            }
-
-*/
-
-
-            }
-            // Send T0/T1 shares to servers and get responses
+            // Send T0 and T1 to their respective servers
             networkTime.add(Instant.now());
-            boolean chooseServer = random.nextBoolean();
-            // if (chooseServer) {
-//                    futureServer1 = executor.submit(() -> new byte[][]{sendToServer(T0, outputStreamServer1, inputStreamServer1)});
-//                    futureServer2 = executor.submit(() -> new byte[][]{sendToServer(T1, outputStreamServer2, inputStreamServer2)});
-//                } else {
-//                    futureServer1 = executor.submit(() -> new byte[][]{sendToServer(T0, outputStreamServer2, inputStreamServer2)});
-//                    futureServer2 = executor.submit(() -> new byte[][]{sendToServer(T1, outputStreamServer1, inputStreamServer1)});
-//             }
-
-            chooseServer = true;
-
             futureServer1 = executor.submit(() -> sendToServer(T0, outputStreamServer1, inputStreamServer1));
             futureServer2 = executor.submit(() -> sendToServer(T1, outputStreamServer2, inputStreamServer2));
 
-
-            //from Server 3
-            futureServer3 = executor.submit(() -> readFromServer3(inputStreamServer3));
-
-            // Wait for responses from Server 1 and Server 2
-
-            // Waiting for threads to complete
-            int[] result1 = futureServer1.get();
-            int[] result2 = futureServer2.get();
-            int[] result3 = futureServer3.get();
+            // Receive results from servers
+            long[] result1 = futureServer1.get();
+            long[] result2 = futureServer2.get();
             networkTime.add(Instant.now());
+
+            // Interpolate results
+            processingTime.add(Instant.now());
+            long interpolationResult = interpolate(result1, result2, numRows, numBits);
             processingTime.add(Instant.now());
 
-            //CALCULATION
-            int interpolationResult = interpolate(result1, result2, result3, numRows, numBits);
-            System.out.println("The number of items matching " + interpolationResult);
-
-
-            processingTime.add(Instant.now());
-            System.out.println("Processing time:" + Helper.getTotalTime(processingTime));
+            System.out.println("The number of items matching: " + interpolationResult);
+            System.out.println("Processing time: " + Helper.getTotalTime(processingTime));
             totalProcessingTimeList.add(Helper.getTotalTime(processingTime));
             totalNetworkTimeList.add(Helper.getTotalTime(networkTime));
 
             executor.shutdown();
         }
-
-
 
         // Calculate Average Processing and Network Time
         double sumProcessingTime = 0;
@@ -279,12 +235,16 @@ public class Client {
 
         double averageProcessingTime = sumProcessingTime / iter;
         double averageNetworkTime = sumNetworkTime / iter;
-        System.out.println("Average processing time " + averageProcessingTime);
-        System.out.println("Temporary network time " + averageNetworkTime);
+        System.out.println("Average processing time: " + averageProcessingTime);
+        System.out.println("Average network time: " + averageNetworkTime);
     }
 
     public static void main(String[] args) throws IOException, ExecutionException, InterruptedException {
+        // return number of rows matching the input query
         processQuery();
     }
 }
+
+
+
 
